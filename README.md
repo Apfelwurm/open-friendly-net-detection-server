@@ -1,4 +1,4 @@
-# Friendly Network Detection (FND) Server
+# Open Friendly Network Detection (FND) Server
 
 Implements the reverse handshake protocol to allow FND clients to determine if they are on a trusted / friendly network.
 
