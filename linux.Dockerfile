@@ -23,7 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && chown -R fndsrv:users /app
 
 # Copy project files
-COPY pyproject.toml README.md ./
+COPY pyproject.toml ./
 COPY open_friendly_net_detection_server ./open_friendly_net_detection_server
 COPY scripts ./scripts
 RUN pip install --no-cache-dir .
