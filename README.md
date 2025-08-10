@@ -21,23 +21,9 @@ log_level: INFO
 allowed_probe_sources: ["10.0.0.0/24", "203.0.113.5"]  # optional literal + CIDR filters
 ```
 
-Usage:
-```bash
-pip install -e .
-open-friendly-net-detection-server --config config.yaml
-```
-
 Generate Ed25519 key + self-signed certificate (example):
 ```bash
 python scripts/gen_cert.py certs/server.key certs/server.der
 ```
-
-Docker build:
-```bash
-docker build -f linux.Dockerfile -t fnd-server:dev .
-```
-
-Non-root container runtime:
-The provided Dockerfile creates a dedicated unprivileged user so the UDP listener does not run as root. Ensure mounted key / cert files are readable by that user (e.g. `chmod 640` with matching group) or adjust ownership during image build.
 
 License: MIT
