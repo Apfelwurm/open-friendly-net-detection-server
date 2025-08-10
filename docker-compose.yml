@@ -1,10 +1,7 @@
 version: '3.8'
 services:
-  fnd-server:
-    build:
-      context: .
-      dockerfile: linux.Dockerfile
-    image: fnd-server:dev
+  open-friendly-net-detection-server:
+    image: apfelwurm/open-friendly-net-detection-server:latest
     restart: unless-stopped
     volumes:
       - ./config.yaml:/app/config.yaml:ro
