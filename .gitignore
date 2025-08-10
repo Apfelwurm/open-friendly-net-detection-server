@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.build/
+.venv/
+.env
+
+# Logs
+logs/
+*.log
+
+# Certificates / keys (generate locally)
+certs/
+
+# Docker
+.docker/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

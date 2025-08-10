@@ -1,0 +1,6 @@
+listen_address: "0.0.0.0"
+udp_port: 32125
+certificate: "certs/server.der"
+private_key: "certs/server.key"
+log_level: INFO
+allowed_probe_sources: []
