@@ -33,12 +33,19 @@ import threading
 import time
 import yaml
 import hashlib
+import ipaddress  # added for CIDR support
 from typing import List
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 MAGIC = b'FND1'
+# ACK_TIMEOUT: seconds to wait for the optional 32‑byte client acknowledgement
+# (SHA256(raw_pubkey || nonce)) after sending certificate + signature. Keeping
+# this as a named constant (instead of an inline literal) documents the
+# protocol expectation and allows easy tuning (e.g., raising in high-latency
+# environments or lowering to release resources sooner). A missing / invalid
+# ack does not mark the probe as failed; it is purely informational here.
 ACK_TIMEOUT = 5
 TCP_CONNECT_TIMEOUT = 5
 MAX_CERT_LEN = 4096  # sanity cap (matches client expectation)
@@ -52,7 +59,34 @@ class ServerConfig:
         self.certificate: str = data.get('certificate', 'certs/server.der')
         self.private_key: str = data.get('private_key', 'certs/server.key')
         self.log_level: str = data.get('log_level', 'INFO')
-        self.allowed_probe_sources: List[str] = data.get('allowed_probe_sources', [])
+        raw_sources: List[str] = data.get('allowed_probe_sources', [])
+        self.allowed_ip_literals: set[str] = set()
+        self.allowed_cidrs: List[ipaddress._BaseNetwork] = []
+        for entry in raw_sources:
+            try:
+                if '/' in entry:
+                    self.allowed_cidrs.append(ipaddress.ip_network(entry, strict=False))
+                else:
+                    # normalize literal IP to string form
+                    self.allowed_ip_literals.add(str(ipaddress.ip_address(entry)))
+            except ValueError:
+                # Skip invalid entry but log later in load_config
+                pass
+        self._raw_sources = raw_sources  # for logging
+
+    def source_allowed(self, ip: str) -> bool:
+        if not self.allowed_ip_literals and not self.allowed_cidrs:
+            return True
+        try:
+            ip_obj = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        if ip in self.allowed_ip_literals:
+            return True
+        for net in self.allowed_cidrs:
+            if ip_obj in net:
+                return True
+        return False
 
 
 def load_config(path: str) -> ServerConfig:
@@ -63,27 +97,44 @@ def load_config(path: str) -> ServerConfig:
         level = getattr(logging, cfg.log_level.upper(), logging.INFO)
         logging.basicConfig(level=level, format='[%(asctime)s] %(levelname)s %(message)s')
         logger.setLevel(level)
-        logger.info('Config loaded (udp_port=%d)', cfg.udp_port)
+        if cfg.allowed_ip_literals or cfg.allowed_cidrs:
+            logger.info('Config loaded (udp_port=%d, allowed_sources=%s)', cfg.udp_port, cfg._raw_sources)
+        else:
+            logger.info('Config loaded (udp_port=%d, allowed_sources=ANY)', cfg.udp_port)
         return cfg
     except FileNotFoundError:
         raise SystemExit(f'Config file not found: {path}')
+    except Exception as e:
+        raise SystemExit(f'Failed to load config {path}: {e}')
 
 
 def load_keys(cert_path: str, key_path: str):
-    with open(cert_path, 'rb') as f:
-        cert_bytes = f.read()
+    try:
+        with open(cert_path, 'rb') as f:
+            cert_bytes = f.read()
+    except FileNotFoundError:
+        raise SystemExit(f'Certificate file not found: {cert_path}')
     if len(cert_bytes) > MAX_CERT_LEN:
         raise SystemExit('Certificate too large')
-    cert = x509.load_der_x509_certificate(cert_bytes)
+    try:
+        cert = x509.load_der_x509_certificate(cert_bytes)
+    except Exception as e:
+        raise SystemExit(f'Cannot parse DER certificate {cert_path}: {e}')
     pubkey = cert.public_key()
     if not isinstance(pubkey, Ed25519PublicKey):
         raise SystemExit('Certificate must contain Ed25519 public key')
-    with open(key_path, 'rb') as f:
-        priv = serialization.load_pem_private_key(f.read(), password=None)
+    try:
+        with open(key_path, 'rb') as f:
+            priv = serialization.load_pem_private_key(f.read(), password=None)
+    except FileNotFoundError:
+        raise SystemExit(f'Private key file not found: {key_path}')
+    except Exception as e:
+        raise SystemExit(f'Cannot load private key {key_path}: {e}')
     if not isinstance(priv, Ed25519PrivateKey):
         raise SystemExit('Private key must be Ed25519')
     raw_pub = pubkey.public_bytes(encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw)
-    logger.info('Loaded keypair (pub=%s...)', raw_pub.hex()[:16])
+    fingerprint = hashlib.sha256(raw_pub).hexdigest()
+    logger.info('Loaded keypair (pub=%s..., sha256=%s)', raw_pub.hex()[:16], fingerprint[:16] + '...')
     return cert_bytes, priv, raw_pub
 
 
@@ -97,7 +148,7 @@ def handle_probe(cfg: ServerConfig, cert_bytes: bytes, priv: Ed25519PrivateKey, 
     tcp_port = struct.unpack('!H', data[4:6])[0]
     nonce = data[6:]
     src_ip = addr[0]
-    if cfg.allowed_probe_sources and src_ip not in cfg.allowed_probe_sources:
+    if not cfg.source_allowed(src_ip):
         logger.debug('Source %s not permitted', src_ip)
         return
     logger.info('Probe from %s (callback port %d)', src_ip, tcp_port)
@@ -127,8 +178,10 @@ def handle_probe(cfg: ServerConfig, cert_bytes: bytes, priv: Ed25519PrivateKey, 
         logger.debug('Callback error to %s:%d - %s', src_ip, tcp_port, e)
 
 
-def udp_listener(cfg: ServerConfig, cert_bytes: bytes, priv: Ed25519PrivateKey, raw_pub: bytes, stop_event: threading.Event):
+def udp_listener(cfg: ServerConfig, cert_bytes: bytes, priv: Ed25519PrivateKey, raw_pub: bytes, stop_event: threading.Event):  # noqa: PLR0913 (many params)
+    # Parameters required to pass static objects into loop; all are used.
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # allow quick restart
     sock.bind((cfg.listen_address, cfg.udp_port))
     logger.info('Listening UDP %s:%d', cfg.listen_address, cfg.udp_port)
     while not stop_event.is_set():
@@ -138,7 +191,7 @@ def udp_listener(cfg: ServerConfig, cert_bytes: bytes, priv: Ed25519PrivateKey, 
             handle_probe(cfg, cert_bytes, priv, raw_pub, data, addr)
         except socket.timeout:
             continue
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 (broad for robustness)
             logger.debug('UDP error: %s', e)
     sock.close()
 

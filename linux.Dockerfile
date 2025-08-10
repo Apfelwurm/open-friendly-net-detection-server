@@ -17,13 +17,18 @@ LABEL com.apfelwurm.build-node=$BUILDNODE \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -r -u 1001 -g users fndsrv \
+    && mkdir -p /app/certs /app/logs \
+    && chown -R fndsrv:users /app
 
 # Copy project files
 COPY pyproject.toml README.md ./
 COPY open_friendly_net_detection_server ./open_friendly_net_detection_server
 COPY scripts ./scripts
 RUN pip install --no-cache-dir .
+
+USER fndsrv
 
 EXPOSE 32125/udp
 

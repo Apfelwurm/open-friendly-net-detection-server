@@ -5,7 +5,7 @@ Usage: gen_cert.py server.key server.der
 The certificate is self-signed and has long validity; clients pin raw public key.
 """
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 from cryptography import x509
@@ -27,8 +27,8 @@ def main():
         .issuer_name(issuer)
         .public_key(pub)
         .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.utcnow() - timedelta(days=1))
-        .not_valid_after(datetime.utcnow() + timedelta(days=3650))
+        .not_valid_before(datetime.now(timezone.utc) - timedelta(days=1))
+        .not_valid_after(datetime.now(timezone.utc) + timedelta(days=3650))
         .sign(private_key=priv, algorithm=None)
     )
     with open(key_path, 'wb') as f:
