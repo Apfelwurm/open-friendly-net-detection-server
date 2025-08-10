@@ -9,7 +9,7 @@ description = "Friendly Network Detection server"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{name = "Apfelwurm", email = "Alexander@volzit.de"}]
-license = {text = "MIT"}
+license = "MIT"
 dependencies = [
   "PyYAML",
   "cryptography"
@@ -17,3 +17,6 @@ dependencies = [
 
 [project.scripts]
 open-friendly-net-detection-server = "open_friendly_net_detection_server.server:main"
+
+[tool.setuptools.packages.find]
+exclude = ["test_venv*", "*.tests", "*.tests.*", "tests.*", "tests"]

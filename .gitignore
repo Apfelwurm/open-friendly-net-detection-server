@@ -4,8 +4,11 @@ __pycache__/
 *.pyo
 *.pyd
 .build/
+build/
 .venv/
 .env
+test_venv/
+open_friendly_net_detection_server.egg-info/
 
 # Logs
 logs/
