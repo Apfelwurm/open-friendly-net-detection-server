@@ -2,6 +2,9 @@
 
 Implements the reverse handshake protocol to allow FND clients to determine if they are on a trusted / friendly network.
 
+> ⚠️ **Notice**: This service was primarily built with GitHub Copilot assistance but includes extensive human adjustments and testing. While tested, there may be edge cases or issues that haven't been identified. **Always test in a non-production environment first** and ensure you have complete backups before running on production systems. There is jank in the code, feel free to PR :)
+
+
 Protocol overview:
 1. Client sends UDP probe to server port 32125 containing: MAGIC (FND1) + 2-byte TCP listen port + 32-byte nonce
 2. Server validates basic structure, then connects back to the client on provided TCP port.
